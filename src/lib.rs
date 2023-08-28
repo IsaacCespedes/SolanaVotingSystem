@@ -65,21 +65,6 @@ struct Proposal {
 }
 
 impl Proposal {
-    fn deserialize(data: &[u8]) -> Result<Self, ProgramError> {
-        let name = data[..32].try_into().unwrap();
-        let vote_count = u32::from_le_bytes(data[32..36].try_into().unwrap());
-
-        Ok(Proposal { name, vote_count })
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.name);
-        bytes.extend_from_slice(&self.vote_count.to_le_bytes());
-
-        bytes
-    }
-
     fn from_bytes(bytes: &[u8]) -> Result<Self, ProgramError> {
         let name = bytes[..32].try_into().unwrap();
         let vote_count = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
@@ -94,6 +79,22 @@ impl Proposal {
 
         bytes
     }
+
+    fn deserialize_list(data: &[u8]) -> Result<Vec<Self>, ProgramError> {
+        let mut proposals = Vec::new();
+        let mut offset = 4; // Skip the winning proposal index
+
+        while offset < data.len() {
+            let name = data[offset..offset + 32].try_into().unwrap();
+            let vote_count = u32::from_le_bytes(data[offset + 32..offset + 36].try_into().unwrap());
+
+            proposals.push(Proposal { name, vote_count });
+
+            offset += 36;
+        }
+
+        Ok(proposals)
+    }
 }
 
 #[derive(Debug)]
@@ -103,7 +104,8 @@ struct SimpleVotingSystem {
     proposals: Vec<Proposal>,
 }
 
-#[entrypoint]
+entrypoint!(process_instruction);
+
 fn process_instruction(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -168,15 +170,15 @@ fn process_instruction(
 }
 
 fn give_right_to_vote(
-    program_id: &Pubkey,
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     _instruction_data: &[u8],
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
-    let chairperson_account = next_account_info(accounts_iter)?;
+    //let chairperson_account = next_account_info(accounts_iter)?;
     let voter_account = next_account_info(accounts_iter)?;
 
-    // Check if the sender is the chairperson
+    // // Check if the sender is the chairperson
     // if *chairperson_account.key != chairperson_public_key {
     //     return Err(ProgramError::InvalidAccountData);
     // }
@@ -200,7 +202,7 @@ fn give_right_to_vote(
     Ok(())
 }
 
-fn vote(program_id: &Pubkey, accounts: &[AccountInfo], instruction_data: &[u8]) -> ProgramResult {
+fn vote(_program_id: &Pubkey, accounts: &[AccountInfo], instruction_data: &[u8]) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let voter_account = next_account_info(accounts_iter)?;
     let proposal_account = next_account_info(accounts_iter)?;
@@ -211,8 +213,8 @@ fn vote(program_id: &Pubkey, accounts: &[AccountInfo], instruction_data: &[u8]) 
     // Retrieve the voter and proposal data
     let voter_data = &mut voter_account.data.borrow_mut();
     let proposal_data = &mut proposal_account.data.borrow_mut();
-    let mut voter = Voter::from_bytes(&voter_data)?;
-    let mut proposal = Proposal::from_bytes(&proposal_data)?;
+    let mut voter = Voter::from_bytes(voter_data)?;
+    let mut proposal = Proposal::from_bytes(proposal_data)?;
 
     // Check if the voter has the right to vote
     if voter.weight == 0 {
@@ -237,7 +239,7 @@ fn vote(program_id: &Pubkey, accounts: &[AccountInfo], instruction_data: &[u8]) 
 }
 
 fn winning_proposal(
-    program_id: &Pubkey,
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     _instruction_data: &[u8],
 ) -> ProgramResult {
@@ -245,7 +247,7 @@ fn winning_proposal(
     let proposal_account = next_account_info(accounts_iter)?;
 
     let proposal_data = &proposal_account.data.borrow();
-    let proposals = Proposal::deserialize_list(&proposal_data)?;
+    let proposals = Proposal::deserialize_list(proposal_data)?;
 
     let mut winning_proposal = 0;
     let mut winning_vote_count = 0;
@@ -268,7 +270,7 @@ fn winning_proposal(
 }
 
 fn winner_name(
-    program_id: &Pubkey,
+    _program_id: &Pubkey,
     accounts: &[AccountInfo],
     _instruction_data: &[u8],
 ) -> ProgramResult {
@@ -276,7 +278,7 @@ fn winner_name(
     let proposal_account = next_account_info(accounts_iter)?;
 
     let proposal_data = &proposal_account.data.borrow();
-    let proposals = Proposal::deserialize_list(&proposal_data)?;
+    let proposals = Proposal::deserialize_list(proposal_data)?;
 
     let winning_proposal = u32::from_le_bytes(proposal_data[..4].try_into().unwrap());
 
@@ -290,24 +292,6 @@ fn winner_name(
         .copy_from_slice(&result_data);
 
     Ok(())
-}
-
-impl Proposal {
-    fn deserialize_list(data: &[u8]) -> Result<Vec<Self>, ProgramError> {
-        let mut proposals = Vec::new();
-        let mut offset = 4; // Skip the winning proposal index
-
-        while offset < data.len() {
-            let name = data[offset..offset + 32].try_into().unwrap();
-            let vote_count = u32::from_le_bytes(data[offset + 32..offset + 36].try_into().unwrap());
-
-            proposals.push(Proposal { name, vote_count });
-
-            offset += 36;
-        }
-
-        Ok(proposals)
-    }
 }
 
 impl SimpleVotingSystem {
